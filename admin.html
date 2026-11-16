@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calls · Blacktop Brothers</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: #f4f4f2; color: #1c1c1a; }
+  header { padding: 14px 20px; background: #1c1c1a; color: #fff; font-weight: 600; }
+  main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 48px); }
+  #list { overflow-y: auto; border-right: 1px solid #ddd; background: #fff; }
+  .call { padding: 12px 16px; border-bottom: 1px solid #eee; cursor: pointer; }
+  .call:hover { background: #f8f8f6; }
+  .call.active { background: #fff6dc; }
+  .call .who { font-weight: 600; }
+  .call .meta { color: #666; font-size: 12px; }
+  #detail { overflow-y: auto; padding: 20px; }
+  #detail h2 { margin: 0 0 4px; font-size: 18px; }
+  .sub { color: #666; margin-bottom: 12px; }
+  audio { width: 100%; margin: 8px 0 16px; }
+  .customer { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; margin-bottom: 16px; font-size: 13px; }
+  .customer div { margin: 2px 0; }
+  .line { display: flex; gap: 10px; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; cursor: pointer; }
+  .line:hover { outline: 1px solid #ccc; }
+  .line.Agent { background: #e8eef7; }
+  .line.Caller { background: #fff; }
+  .line .t { color: #888; font-variant-numeric: tabular-nums; min-width: 44px; }
+  .line .role { font-weight: 600; min-width: 52px; }
+  .empty { color: #888; padding: 20px; }
+  @media (max-width: 700px) {
+    main { grid-template-columns: 1fr; height: auto; }
+    #list { max-height: 40vh; border-right: 0; border-bottom: 1px solid #ddd; }
+  }
+</style>
+</head>
+<body>
+<header>Blacktop Brothers · Calls</header>
+<main>
+  <div id="list"><div class="empty">Loading…</div></div>
+  <div id="detail"><div class="empty">Select a call</div></div>
+</main>
+<script>
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const fmtTime = (iso) => new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" });
+  const fmtDur = (a, b) => { if (!b) return "in progress"; const s = Math.round((new Date(b) - new Date(a)) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+  const fmtSec = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
+  // --- Call list ---
+  async function loadList() {
+    const calls = await (await fetch("/admin/api/calls")).json();
+    $("#list").innerHTML = calls.length ? calls.map((c) => `
+      <div class="call" data-sid="${c.callSid}">
+        <div class="who">${esc(c.name)}</div>
+        <div class="meta">${fmtTime(c.started_at)} ET · ${fmtDur(c.started_at, c.ended_at)}</div>
+      </div>`).join("") : `<div class="empty">No calls yet</div>`;
+    document.querySelectorAll(".call").forEach((el) => (el.onclick = () => openCall(el.dataset.sid)));
+  }
+
+  // --- Call detail ---
+  async function openCall(sid) {
+    document.querySelectorAll(".call").forEach((el) => el.classList.toggle("active", el.dataset.sid === sid));
+    const c = await (await fetch(`/admin/api/calls/${sid}`)).json();
+    const cust = c.customer;
+    $("#detail").innerHTML = `
+      <h2>${esc(cust?.name || "Unknown caller")}</h2>
+      <div class="sub">${fmtTime(c.started_at)} ET · ${fmtDur(c.started_at, c.ended_at)}</div>
+      ${c.ended_at ? `<audio controls preload="metadata" src="/admin/audio/${sid}"></audio>` : ""}
+      ${cust ? `<div class="customer">
+        ${["name", "address", "job_description", "estimate", "notes"].filter((k) => cust[k]).map((k) => `<div><b>${k.replace("_", " ")}:</b> ${esc(cust[k])}</div>`).join("")}
+      </div>` : ""}
+      ${c.transcript.map((l) => `
+        <div class="line ${l.role}" data-t="${l.t}">
+          <span class="t">${fmtSec(l.t)}</span><span class="role">${l.role}</span><span>${esc(l.text)}</span>
+        </div>`).join("") || `<div class="empty">No transcript</div>`}`;
+    // Click a line to jump the audio there
+    document.querySelectorAll(".line").forEach((el) => (el.onclick = () => {
+      const a = $("audio");
+      if (a) { a.currentTime = Math.max(0, el.dataset.t - 0.3); a.play(); }
+    }));
+  }
+
+  loadList();
+</script>
+</body>
+</html>
